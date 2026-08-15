@@ -1,0 +1,407 @@
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..b0624ab
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,115 @@
++# CyberSecOps
++
++A small Attack Surface Management / vulnerability-scanning platform for lab and
++staging environments. Users register an organization, register assets
++(IPs, domains, URLs), launch scans against them (currently `nmap`), and
++review the resulting findings — all scoped per-organization.
++
++> ⚠️ **Scan authorized targets only.** The included `docker-compose.yml`
++> ships an intentionally vulnerable OWASP Juice Shop container as a safe,
++> legal scan target for local testing. Never point scans at hosts you don't
++> own or have explicit permission to test.
++
++## Architecture
++
++```
++frontend/   Next.js 16 (App Router, TypeScript, Tailwind)
++backend/    FastAPI + SQLAlchemy + Alembic, Celery worker for async scans
++infra/      docker-compose.yml — Postgres, Redis, Juice Shop lab target
++```
++
++- **Auth**: email/password, bcrypt-hashed, JWT bearer tokens (`python-jose`).
++- **Multi-tenancy**: every asset/scan/finding is scoped to the caller's
++  organization via `organization_id`; cross-org access returns `404`.
++- **Scanning**: `POST /scans` queues a Celery task that runs `nmap -sV -Pn`
++  against the asset and parses open ports/services into `Finding` rows.
++
++## Prerequisites
++
++- Python 3.11+
++- Node.js 20+
++- Docker (for Postgres, Redis, and the Juice Shop lab target)
++- `nmap` installed locally if you want to run the Celery worker outside Docker
++
++## Setup
++
++### 1. Start infrastructure
++
++```bash
++cd infra
++docker compose up -d
++```
++
++This starts Postgres (`localhost:5432`), Redis (`localhost:6379`), and
++Juice Shop (`localhost:3000` — a safe scan target for testing).
++
++### 2. Backend
++
++```bash
++cd backend
++python3 -m venv .venv
++source .venv/bin/activate
++pip install -r requirements.txt
++
++cp .env.example .env
++# edit .env and set a real JWT_SECRET, especially outside local dev
++
++alembic upgrade head
++uvicorn app.main:app --reload --port 8000
++```
++
++API docs available at `http://localhost:8000/docs`.
++
++In a second terminal, start the Celery worker that actually runs scans:
++
++```bash
++cd backend
++source .venv/bin/activate
++celery -A app.celery_app worker --loglevel=info
++```
++
++### 3. Frontend
++
++```bash
++cd frontend
++npm install
++cp .env.example .env.local
++npm run dev
++```
++
++Open `http://localhost:3001` (or whatever port Next.js picks if 3000 is
++already taken by Juice Shop) and register an account.
++
++## Environment variables
++
++See `backend/.env.example` and `frontend/.env.example` for the full list.
++Key ones:
++
++| Variable | Where | Purpose |
++|---|---|---|
++| `DATABASE_URL` | backend | Postgres connection string |
++| `REDIS_URL` | backend | Celery broker/result backend |
++| `JWT_SECRET` | backend | Signing key for auth tokens — **must** be changed outside local dev |
++| `CORS_ALLOWED_ORIGINS` | backend | Comma-separated list of origins allowed to call the API |
++| `NEXT_PUBLIC_API_URL` | frontend | Base URL the frontend uses to reach the backend |
++
++## Security notes
++
++- Default secrets in `core_config.py` are for local dev only — always set
++  real values via `.env` before deploying anywhere reachable.
++- JWTs are currently stored in `localStorage` on the frontend for
++  simplicity; for a production deployment, prefer httpOnly cookies to
++  reduce XSS token-theft risk.
++- `nmap` is invoked via `subprocess.run` with an argument list (not a
++  shell string), so asset values can't be used for shell injection —
++  but only ever register assets you're authorized to scan.
++
++## Running tests / verifying the setup
++
++```bash
++# Backend: confirm the app imports and the schema is valid
++cd backend && python -c "from app.main import app"
++
++# Frontend: type-check and lint
++cd frontend && npx tsc --noEmit && npx eslint .
++```
+diff --git a/backend/.env.example b/backend/.env.example
+new file mode 100644
+index 0000000..5beaad7
+--- /dev/null
++++ b/backend/.env.example
+@@ -0,0 +1,13 @@
++# Copy this file to .env and fill in real values before running in anything
++# beyond local dev. Never commit the real .env file.
++
++DATABASE_URL=postgresql+psycopg://cybersecops:changeme_local_dev@localhost:5432/cybersecops
++REDIS_URL=redis://localhost:6379/0
++
++# Generate a strong secret, e.g.: python -c "import secrets; print(secrets.token_hex(32))"
++JWT_SECRET=change-me-dev-only-not-for-production
++JWT_ALGORITHM=HS256
++JWT_EXPIRE_MINUTES=60
++
++# Comma-separated list of origins allowed to call the API
++CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
+diff --git a/backend/alembic/versions/00ce532c0576_add_assets_table.py b/backend/alembic/versions/00ce532c0576_add_assets_table.py
+deleted file mode 100644
+index 2fbc2cf..0000000
+--- a/backend/alembic/versions/00ce532c0576_add_assets_table.py
++++ /dev/null
+@@ -1,32 +0,0 @@
+-"""add assets table
+-
+-Revision ID: 00ce532c0576
+-Revises: ffd60cc2a9c3
+-Create Date: 2026-08-14 23:23:05.258874
+-
+-"""
+-from typing import Sequence, Union
+-
+-from alembic import op
+-import sqlalchemy as sa
+-
+-
+-# revision identifiers, used by Alembic.
+-revision: str = '00ce532c0576'
+-down_revision: Union[str, Sequence[str], None] = 'ffd60cc2a9c3'
+-branch_labels: Union[str, Sequence[str], None] = None
+-depends_on: Union[str, Sequence[str], None] = None
+-
+-
+-def upgrade() -> None:
+-    """Upgrade schema."""
+-    # ### commands auto generated by Alembic - please adjust! ###
+-    pass
+-    # ### end Alembic commands ###
+-
+-
+-def downgrade() -> None:
+-    """Downgrade schema."""
+-    # ### commands auto generated by Alembic - please adjust! ###
+-    pass
+-    # ### end Alembic commands ###
+diff --git a/backend/alembic/versions/e5478150eeeb_add_assets_table.py b/backend/alembic/versions/e5478150eeeb_add_assets_table.py
+index 4972247..be57b85 100644
+--- a/backend/alembic/versions/e5478150eeeb_add_assets_table.py
++++ b/backend/alembic/versions/e5478150eeeb_add_assets_table.py
+@@ -13,7 +13,7 @@ import sqlalchemy as sa
+ 
+ # revision identifiers, used by Alembic.
+ revision: str = 'e5478150eeeb'
+-down_revision: Union[str, Sequence[str], None] = '00ce532c0576'
++down_revision: Union[str, Sequence[str], None] = 'ffd60cc2a9c3'
+ branch_labels: Union[str, Sequence[str], None] = None
+ depends_on: Union[str, Sequence[str], None] = None
+ 
+diff --git a/backend/app/core_config.py b/backend/app/core_config.py
+index fade33d..480b1c8 100644
+--- a/backend/app/core_config.py
++++ b/backend/app/core_config.py
+@@ -7,6 +7,11 @@ class Settings(BaseSettings):
+     jwt_secret: str = "change-me-dev-only-not-for-production"
+     jwt_algorithm: str = "HS256"
+     jwt_expire_minutes: int = 60
++    cors_allowed_origins: str = "http://localhost:3000,http://localhost:3001"
++
++    @property
++    def cors_origins_list(self) -> list[str]:
++        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+ 
+     class Config:
+         env_file = ".env"
+diff --git a/backend/app/main.py b/backend/app/main.py
+index 49903d9..8d97205 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -1,6 +1,7 @@
+ from fastapi import FastAPI, Depends
+ from fastapi.middleware.cors import CORSMiddleware
+ 
++from app.core_config import settings
+ from app.routers_auth import router as auth_router, get_current_user
+ from app.routers_assets import router as assets_router
+ from app.routers_scans import router as scans_router
+@@ -11,7 +12,7 @@ app = FastAPI(title="CyberSecOps Platform API", version="0.1.0")
+ 
+ app.add_middleware(
+     CORSMiddleware,
+-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
++    allow_origins=settings.cors_origins_list,
+     allow_credentials=True,
+     allow_methods=["*"],
+     allow_headers=["*"],
+diff --git a/backend/app/schemas.py b/backend/app/schemas.py
+index ca98779..f2e2966 100644
+--- a/backend/app/schemas.py
++++ b/backend/app/schemas.py
+@@ -1,12 +1,12 @@
+ import uuid
+ 
+-from pydantic import BaseModel, EmailStr
++from pydantic import BaseModel, EmailStr, Field
+ 
+ 
+ class RegisterRequest(BaseModel):
+     email: EmailStr
+-    password: str
+-    organization_name: str
++    password: str = Field(min_length=8)
++    organization_name: str = Field(min_length=1, max_length=255)
+ 
+ 
+ class LoginRequest(BaseModel):
+diff --git a/backend/app/schemas_asset.py b/backend/app/schemas_asset.py
+index e5857dc..0140a1f 100644
+--- a/backend/app/schemas_asset.py
++++ b/backend/app/schemas_asset.py
+@@ -1,13 +1,14 @@
+ import uuid
+ from datetime import datetime
++from typing import Literal
+ 
+-from pydantic import BaseModel
++from pydantic import BaseModel, Field
+ 
+ 
+ class AssetCreate(BaseModel):
+-    type: str
+-    value: str
+-    environment: str = "lab"
++    type: Literal["ip", "domain", "url"]
++    value: str = Field(min_length=1, max_length=255)
++    environment: Literal["lab", "staging", "prod"] = "lab"
+     owner: str | None = None
+ 
+ 
+diff --git a/backend/requirements.txt b/backend/requirements.txt
+index 10c976e..b36a0b1 100644
+--- a/backend/requirements.txt
++++ b/backend/requirements.txt
+@@ -1,23 +1,28 @@
++Mako==1.4.1
++MarkupSafe==3.0.3
++PyYAML==6.0.3
++SQLAlchemy==2.0.52
+ alembic==1.19.1
+ annotated-doc==0.0.5
+ annotated-types==0.8.0
+ anyio==4.14.2
++bcrypt==4.0.1
++celery[redis]==5.4.0
+ click==8.4.2
++email-validator==2.2.0
+ fastapi==0.141.1
+ greenlet==3.5.5
+ h11==0.16.0
+ httptools==0.8.0
+ idna==3.18
+-Mako==1.4.1
+-MarkupSafe==3.0.3
+-psycopg==3.3.4
++passlib[bcrypt]==1.7.4
+ psycopg-binary==3.3.4
+-pydantic==2.13.4
++psycopg==3.3.4
+ pydantic-settings==2.15.0
++pydantic==2.13.4
+ pydantic_core==2.46.4
+ python-dotenv==1.2.2
+-PyYAML==6.0.3
+-SQLAlchemy==2.0.52
++python-jose[cryptography]==3.3.0
+ starlette==1.6.0
+ typing-inspection==0.4.4
+ typing_extensions==4.16.0
+diff --git a/frontend/.env.example b/frontend/.env.example
+new file mode 100644
+index 0000000..18eb1a8
+--- /dev/null
++++ b/frontend/.env.example
+@@ -0,0 +1,2 @@
++# URL of the backend FastAPI service
++NEXT_PUBLIC_API_URL=http://localhost:8000
+diff --git a/frontend/.gitignore b/frontend/.gitignore
+index 5ef6a52..7b8da95 100644
+--- a/frontend/.gitignore
++++ b/frontend/.gitignore
+@@ -32,6 +32,7 @@ yarn-error.log*
+ 
+ # env files (can opt-in for committing if needed)
+ .env*
++!.env.example
+ 
+ # vercel
+ .vercel
+diff --git a/frontend/lib/api.ts b/frontend/lib/api.ts
+index 52d9bad..6acca7b 100644
+--- a/frontend/lib/api.ts
++++ b/frontend/lib/api.ts
+@@ -1,4 +1,4 @@
+-const API_URL = "http://localhost:8000";
++const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+ 
+ export function getToken(): string | null {
+   if (typeof window === "undefined") return null;
+diff --git a/frontend/src/app/assets/page.tsx b/frontend/src/app/assets/page.tsx
+index 42880da..9fc0b5a 100644
+--- a/frontend/src/app/assets/page.tsx
++++ b/frontend/src/app/assets/page.tsx
+@@ -23,8 +23,8 @@ export default function AssetsPage() {
+     try {
+       const data = await api.listAssets();
+       setAssets(data);
+-    } catch (err: any) {
+-      setError(err.message);
++    } catch (err) {
++      setError(err instanceof Error ? err.message : "Something went wrong");
+     }
+   }
+ 
+@@ -39,8 +39,8 @@ export default function AssetsPage() {
+       await api.createAsset(type, value, environment);
+       setValue("");
+       load();
+-    } catch (err: any) {
+-      setError(err.message);
++    } catch (err) {
++      setError(err instanceof Error ? err.message : "Something went wrong");
+     }
+   }
+ 
+@@ -49,8 +49,8 @@ export default function AssetsPage() {
+     try {
+       await api.createScan(assetId, "nmap");
+       alert("Scan launched — check the Findings page in a moment.");
+-    } catch (err: any) {
+-      setError(err.message);
++    } catch (err) {
++      setError(err instanceof Error ? err.message : "Something went wrong");
+     } finally {
+       setScanningId(null);
+     }
+diff --git a/frontend/src/app/findings/page.tsx b/frontend/src/app/findings/page.tsx
+index c03d5b0..3cd325d 100644
+--- a/frontend/src/app/findings/page.tsx
++++ b/frontend/src/app/findings/page.tsx
+@@ -29,8 +29,8 @@ export default function FindingsPage() {
+     try {
+       const data = await api.listFindings();
+       setFindings(data);
+-    } catch (err: any) {
+-      setError(err.message);
++    } catch (err) {
++      setError(err instanceof Error ? err.message : "Something went wrong");
+     }
+   }
+ 
+diff --git a/frontend/src/app/login/page.tsx b/frontend/src/app/login/page.tsx
+index bbce4fe..8797670 100644
+--- a/frontend/src/app/login/page.tsx
++++ b/frontend/src/app/login/page.tsx
+@@ -19,8 +19,8 @@ export default function LoginPage() {
+       const data = await api.login(email, password);
+       setToken(data.access_token);
+       router.push("/assets");
+-    } catch (err: any) {
+-      setError(err.message || "Login failed");
++    } catch (err) {
++      setError(err instanceof Error ? err.message : "Login failed");
+     } finally {
+       setLoading(false);
+     }

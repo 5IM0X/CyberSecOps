@@ -1,13 +1,14 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AssetCreate(BaseModel):
-    type: str
-    value: str
-    environment: str = "lab"
+    type: Literal["ip", "domain", "url"]
+    value: str = Field(min_length=1, max_length=255)
+    environment: Literal["lab", "staging", "prod"] = "lab"
     owner: str | None = None
 
 

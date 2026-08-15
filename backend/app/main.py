@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core_config import settings
 from app.routers_auth import router as auth_router, get_current_user
 from app.routers_assets import router as assets_router
 from app.routers_scans import router as scans_router
@@ -11,7 +12,7 @@ app = FastAPI(title="CyberSecOps Platform API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

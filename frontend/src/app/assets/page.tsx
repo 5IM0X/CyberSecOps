@@ -23,8 +23,8 @@ export default function AssetsPage() {
     try {
       const data = await api.listAssets();
       setAssets(data);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
     }
   }
 
@@ -39,8 +39,8 @@ export default function AssetsPage() {
       await api.createAsset(type, value, environment);
       setValue("");
       load();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
     }
   }
 
@@ -49,8 +49,8 @@ export default function AssetsPage() {
     try {
       await api.createScan(assetId, "nmap");
       alert("Scan launched — check the Findings page in a moment.");
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setScanningId(null);
     }
